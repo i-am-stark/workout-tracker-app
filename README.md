@@ -38,11 +38,13 @@ A polished, calendar-based workout tracker with weekly summaries, history, and e
 
 ## Deploy to GitHub Pages
 
-The GitHub Actions workflow builds on pushes to `main` and publishes `dist/` to the
-`gh-pages` branch. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as repository
-Actions secrets, then enable GitHub Pages in the repository settings using the
-`gh-pages` branch and `/ (root)` folder. The Vite build uses a relative asset base, so
-it works under the `/workout-tracker-app/` project-site path.
+The GitHub Actions workflow builds and deploys the site when code is pushed to `main`.
+It can also be started manually from the repository's **Actions** tab using **Run
+workflow**. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as repository Actions
+secrets, then set **Settings → Pages → Build and deployment → Source** to **GitHub
+Actions**. The workflow deploys the generated Pages artifact directly; it does not
+publish to a `gh-pages` branch. The Vite build uses a relative asset base, so it works
+under the `/workout-tracker-app/` project-site path.
 
 ## Sign in and keep access to your workouts
 
