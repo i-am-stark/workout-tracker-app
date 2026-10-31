@@ -2,6 +2,9 @@
 
 A polished, calendar-based workout tracker with weekly summaries, history, and exercise volume insights.
 
+For the full architecture, data-flow, and feature change-point reference, see
+[PROJECT_GUIDE.md](./PROJECT_GUIDE.md).
+
 ## Features
 - Monthly calendar
 - Day-by-day workout tracking
@@ -22,13 +25,14 @@ A polished, calendar-based workout tracker with weekly summaries, history, and e
 ## Setup
 1. Create a Supabase project
 2. Run the SQL from `supabase/schema.sql`
-3. Copy `.env.example` to `.env` and fill in:
+3. Create `.env` in the project root and fill in:
    ```env
    VITE_SUPABASE_URL=https://your-project-id.supabase.co
    VITE_SUPABASE_ANON_KEY=your-anon-key
    ```
-4. For local development, create `.env` in the project root and restart `npm run dev`
-   after adding these values. The app displays a setup message if either value is missing.
+4. Restart `npm run dev` after adding these values. The app displays a setup
+   message if either value is missing. The repository does not currently include
+   an `.env.example` file.
 5. Enable anonymous sign-ins in your Supabase project's Authentication settings so the
    tracker can create a user session.
 6. Enable the Email provider and Manual Linking in Supabase Authentication settings.
