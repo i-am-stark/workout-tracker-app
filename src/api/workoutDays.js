@@ -13,7 +13,25 @@ export async function getWorkoutDaysForMonth(userId, startDate, endDate) {
   return data || [];
 }
 
+export async function getRecentWorkoutDays(userId, limit = 8) {
+  const { data, error } = await supabase
+    .from('workout_days')
+    .select('id, date, workout_type')
+    .eq('user_id', userId)
+    .eq('status', 'workout')
+    .order('date', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data || [];
+}
+
 export async function saveWorkoutDay(userId, payload) {
+  const includesWorkoutType = Object.prototype.hasOwnProperty.call(payload, 'workout_type');
+  const existingDay = includesWorkoutType
+    ? null
+    : await getWorkoutDay(userId, payload.date);
+
   const { data, error } = await supabase
     .from('workout_days')
     .upsert(
@@ -21,7 +39,10 @@ export async function saveWorkoutDay(userId, payload) {
         user_id: userId,
         date: payload.date,
         status: payload.status || 'empty',
-        notes: payload.notes || ''
+        notes: payload.notes || '',
+        workout_type: includesWorkoutType
+          ? payload.workout_type
+          : existingDay?.workout_type ?? null
       },
       { onConflict: 'user_id,date' }
     )

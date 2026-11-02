@@ -9,9 +9,11 @@ contributors modifying existing behavior.
 
 Workout Tracker is a calendar-based workout log. A signed-in user can mark a
 date as a workout, rest day, skipped day, or empty day; add notes; and record
-exercise entries with sets, reps, weight, and notes. The dashboard summarizes
-the selected month, shows a recent seven-day summary and exercise focus, and
-lists recent entries.
+exercise entries as strength or distance-based cardio. Days can have a workout
+type, and entries can use the local exercise library or a custom name. The
+dashboard includes a compact month calendar, an independently loaded seven-day
+summary, a registered-user monthly leaderboard, monthly metrics, exercise
+focus, and recent history.
 
 The browser application is built with React and Vite. Supabase provides
 authentication, PostgreSQL storage, and row-level security. There is no
@@ -28,6 +30,9 @@ through the Supabase JavaScript client.
 ├── src/
 │   ├── api/
 │   │   ├── exercises.js
+│   │   ├── leaderboard.js
+│   │   ├── monthlyPrComparison.js
+│   │   ├── profiles.js
 │   │   ├── workoutDays.js
 │   │   └── workoutEntries.js
 │   ├── components/
@@ -37,15 +42,24 @@ through the Supabase JavaScript client.
 │   │   ├── ExerciseChart.jsx
 │   │   ├── ExerciseSearch.jsx
 │   │   ├── HistoryList.jsx
+│   │   ├── Leaderboard.jsx
+│   │   ├── MonthlyPrComparison.jsx
 │   │   ├── SummaryCards.jsx
 │   │   └── WeeklySummary.jsx
+│   ├── data/
+│   │   └── exerciseLibrary.js
 │   ├── lib/
 │   │   ├── dateUtils.js
-│   │   └── supabase.js
+│   │   ├── supabase.js
+│   │   └── workoutEntryUtils.js
 │   ├── App.jsx
 │   ├── index.css
 │   └── main.jsx
 ├── supabase/
+│   ├── migrations/
+│   │   ├── 20261102_mobile_workout_features.sql
+│   │   ├── 20261102_monthly_pr_comparison.sql
+│   │   └── 20261102_per_set_reps_weights.sql
 │   └── schema.sql
 ├── index.html
 ├── package.json
@@ -67,7 +81,10 @@ through the Supabase JavaScript client.
 | [vite.config.js](./vite.config.js) | React plugin, development server settings, and relative asset base for project-site deployment. |
 | [.gitignore](./.gitignore) | Excludes dependencies, build output, local environment files, Vite cache, and macOS metadata. |
 | [.github/workflows/deploy.yml](./.github/workflows/deploy.yml) | Builds on pushes to `main` or manual dispatch, then deploys the `dist` artifact to GitHub Pages. |
-| [supabase/schema.sql](./supabase/schema.sql) | Database tables, indexes, constraints, and row-level security policies required by the app. |
+| [supabase/schema.sql](./supabase/schema.sql) | Complete fresh-install schema, indexes, constraints, own-row policies, profile trigger, and leaderboard RPC. |
+| [supabase/migrations/20261102_mobile_workout_features.sql](./supabase/migrations/20261102_mobile_workout_features.sql) | Additive upgrade for existing databases: workout/cardio fields, profiles, and aggregate leaderboard RPC. |
+| [supabase/migrations/20261102_per_set_reps_weights.sql](./supabase/migrations/20261102_per_set_reps_weights.sql) | Adds a JSONB array for per-set reps and weight without rewriting existing records. |
+| [supabase/migrations/20261102_monthly_pr_comparison.sql](./supabase/migrations/20261102_monthly_pr_comparison.sql) | Adds a restricted aggregate RPC for top athletes' highest exercise PRs. |
 
 ### Application source
 
@@ -76,11 +93,12 @@ through the Supabase JavaScript client.
 | Bootstrap | [src/main.jsx](./src/main.jsx), [index.html](./index.html) | Mounts React into the page, loads global CSS, and starts `App`. |
 | Page orchestration | [src/App.jsx](./src/App.jsx) | Owns authentication, selected month, loaded records, dashboard calculations, user actions, and the composition of the page. |
 | Supabase client | [src/lib/supabase.js](./src/lib/supabase.js) | Reads the Vite environment variables, detects missing configuration, and creates the persistent Supabase browser client. |
-| API/data access | [src/api/exercises.js](./src/api/exercises.js), [src/api/workoutDays.js](./src/api/workoutDays.js), [src/api/workoutEntries.js](./src/api/workoutEntries.js) | Encapsulates queries and mutations for the three database tables. |
+| API/data access | [src/api/exercises.js](./src/api/exercises.js), [src/api/workoutDays.js](./src/api/workoutDays.js), [src/api/workoutEntries.js](./src/api/workoutEntries.js), [src/api/profiles.js](./src/api/profiles.js), [src/api/leaderboard.js](./src/api/leaderboard.js), [src/api/monthlyPrComparison.js](./src/api/monthlyPrComparison.js) | Encapsulates user-scoped table queries and narrowly scoped leaderboard/PR aggregate RPCs. |
+| Exercise suggestions | [src/data/exerciseLibrary.js](./src/data/exerciseLibrary.js) | Provides the static categorized suggestions and workout-type presets; custom names remain per-user. |
 | Date helpers | [src/lib/dateUtils.js](./src/lib/dateUtils.js) | Formats local date keys and builds calendar cells, month titles, and date labels. |
 | Account UI | [src/components/AccountPanel.jsx](./src/components/AccountPanel.jsx) | Renders login, guest-account linking, password setup/recovery, and authentication feedback. |
-| Calendar and day editing | [src/components/CalendarGrid.jsx](./src/components/CalendarGrid.jsx), [src/components/DayDetailsModal.jsx](./src/components/DayDetailsModal.jsx), [src/components/ExerciseSearch.jsx](./src/components/ExerciseSearch.jsx) | Displays date statuses and supports day editing, exercise lookup, and entry editing. |
-| Dashboard views | [src/components/SummaryCards.jsx](./src/components/SummaryCards.jsx), [src/components/WeeklySummary.jsx](./src/components/WeeklySummary.jsx), [src/components/ExerciseChart.jsx](./src/components/ExerciseChart.jsx), [src/components/HistoryList.jsx](./src/components/HistoryList.jsx) | Present the aggregate stats, recent week, exercise totals, and recent entries passed down by `App`. |
+| Calendar and day editing | [src/components/CalendarGrid.jsx](./src/components/CalendarGrid.jsx), [src/components/DayDetailsModal.jsx](./src/components/DayDetailsModal.jsx), [src/components/ExerciseSearch.jsx](./src/components/ExerciseSearch.jsx) | Displays a seven-column date grid and supports day/session editing, exercise lookup, strength/cardio entry editing. |
+| Dashboard views | [src/components/SummaryCards.jsx](./src/components/SummaryCards.jsx), [src/components/WeeklySummary.jsx](./src/components/WeeklySummary.jsx), [src/components/Leaderboard.jsx](./src/components/Leaderboard.jsx), [src/components/MonthlyPrComparison.jsx](./src/components/MonthlyPrComparison.jsx), [src/components/ExerciseChart.jsx](./src/components/ExerciseChart.jsx), [src/components/HistoryList.jsx](./src/components/HistoryList.jsx) | Present monthly metrics, the current week, safe leaderboard and PR comparisons, exercise totals, and recent workout dates/types. |
 | Visual design | [src/index.css](./src/index.css) | Defines the dark theme, shared controls, component layouts, state colors, and responsive breakpoints. |
 
 ## Architecture and responsibilities
@@ -114,10 +132,11 @@ index.html
             ├── src/lib/supabase.js ── Supabase Auth
             ├── src/api/* ──────────── Supabase tables
             ├── AccountPanel
-            ├── SummaryCards
-            ├── WeeklySummary
-            ├── ExerciseChart
             ├── CalendarGrid
+            ├── WeeklySummary
+            ├── Leaderboard
+            ├── SummaryCards
+            ├── ExerciseChart
             ├── HistoryList
             └── DayDetailsModal
                  └── ExerciseSearch
@@ -137,9 +156,15 @@ The primary state groups are:
   busy state, messages/errors, password recovery/setup flags, and guest sign-up
   visibility.
 - **Dashboard selection:** `monthDate` drives the displayed month and its
-  database query.
-- **Month data:** `workoutMap` maps `YYYY-MM-DD` keys to workout-day rows;
-  `monthEntries` holds entries belonging to those days.
+  calendar and monthly leaderboard query.
+- **Visible calendar data:** `workoutMap` maps the full visible 42-day range
+  (`YYYY-MM-DD`) to workout-day rows. `monthEntries` contains only entries from
+  the selected month so adjacent-month cells do not affect monthly metrics.
+- **Current week:** `weeklyDays` and `weeklyEntries` are queried independently
+  for the seven local dates ending today; they do not depend on the selected
+  calendar month.
+- **Profile and leaderboard:** `profile` is the current user's private
+  `user_profiles` row. Leaderboard rows come only from the aggregate RPC.
 - **Cross-month summaries:** `recentEntries` and `exerciseVolume` are loaded
   separately from the active month.
 - **Day editor:** `selectedDate`, `modalDay`, and `dayEntries` represent the
@@ -148,8 +173,11 @@ The primary state groups are:
 When the authenticated user changes, `applySessionUser` clears data belonging
 to the previous account before loading the new account's records. An effect
 subscribes to Supabase auth changes and initializes from any persisted session.
-The month-loading effect fetches day rows for the selected month, then loads
-their entries, recent entries, and all-time exercise totals.
+The calendar-loading effect fetches day rows spanning the first through last
+visible calendar cells. It then loads selected-month entries, recent workout
+days, and all-time exercise totals. A separate effect fetches the latest seven local
+dates and their entries, while the leaderboard API requests only the selected
+calendar month.
 
 ## Main user and data flows
 
@@ -201,15 +229,21 @@ if there is no row yet), then opens `DayDetailsModal`.
 The modal can:
 
 - Set the date status to `empty`, `workout`, `rest`, or `skipped`.
+- Select a preset or typed workout/session name stored on the day.
 - Save day notes after a short debounce; closing the modal flushes unsaved
   notes.
-- Search the user's exercise names or enter a new name.
-- Add, edit, or delete an entry.
+- Search the static categorized library together with the user's private saved
+  exercise names, or enter a new name.
+- Add, edit, or delete a strength entry (sets, reps, weight/unit) or
+  distance-based cardio entry (kilometres and km/h).
 
 On entry save, `App` upserts the exercise name, ensures a workout-day row
-exists with `workout` status, saves or updates the entry, and refreshes the
-open day and dashboard data. Deleting an entry refreshes the same views.
-Database errors are surfaced through the app-level error banner.
+exists with `workout` status and the current workout type, saves or updates the
+entry, and refreshes the open day and dashboard data. Deleting an entry
+refreshes the same views. Database errors are surfaced through the app-level
+error banner. Profile updates use the owner-scoped profile API; the leaderboard
+uses only `get_monthly_leaderboard`, and the PR comparison uses only the
+restricted `get_monthly_pr_comparison` RPC, never cross-user table reads.
 
 ## Database model
 
@@ -217,14 +251,30 @@ The schema is defined in [supabase/schema.sql](./supabase/schema.sql).
 
 | Table | Role | Key relationships and constraints |
 | --- | --- | --- |
-| `workout_days` | One user's status and notes for a calendar date. | Unique `(user_id, date)`; status restricted to `empty`, `workout`, `rest`, or `skipped`. |
+| `workout_days` | One user's status, notes, and workout/session type for a calendar date. | Unique `(user_id, date)`; status restricted to `empty`, `workout`, `rest`, or `skipped`; `workout_type` is optional and may be custom text. |
 | `exercises` | Per-user reusable exercise names. | Unique `(user_id, name)`. The UI uses a name snapshot on entries, so historical entries remain readable if an exercise library record is removed. |
-| `workout_entries` | A logged exercise within a workout day. | `day_id` references `workout_days` and cascades on day deletion; optional `exercise_id` becomes null if the exercise is removed. Stores a denormalized `exercise_name`, sets, reps, load, unit, notes, and ordering. |
+| `workout_entries` | A logged strength exercise or distance-based cardio activity within a workout day. | `day_id` references `workout_days` and cascades on day deletion; optional `exercise_id` becomes null if the exercise is removed. Stores a denormalized `exercise_name`, entry type, per-set reps/weight in `set_details`, compatibility aggregates, cardio distance/speed, notes, and ordering. |
+| `user_profiles` | Private canonical display name for each auth user. | `user_id` references `auth.users`; owner-only select/insert/update policies; display names are 1–40 trimmed characters. |
 
-All three tables have `user_id`. Row-level security is enabled, with policies
-that allow authenticated users to select, insert, update, and delete only rows
-whose `user_id` matches `auth.uid()`. API queries also filter by `user_id`, but
-database policies are the actual server-side isolation boundary.
+Workout tables have `user_id`. Row-level security is enabled, with policies
+that allow authenticated users to access only rows whose `user_id` matches
+`auth.uid()`. API queries also filter by `user_id`, but database policies are
+the actual server-side isolation boundary. Profile rows are also owner-only;
+there is no broad cross-user profile or workout-day read policy.
+
+The `get_monthly_leaderboard(date)` security-definer RPC returns only rank,
+display name, workout-day count, and whether the row belongs to the caller. It
+counts workout-status days for the month, includes zero-day registered users,
+uses shared ranks for ties, and excludes anonymous auth users.
+`get_monthly_pr_comparison(date)` uses the selected month's top five registered
+athletes and returns only rank, display name, up to five all-time exercise PRs
+per athlete, and kilogram weights. Neither RPC returns email, UUID, notes, or
+raw day rows; the PR comparison is the only cross-user exercise aggregation.
+
+For an existing database, run the SQL files in
+[supabase/migrations/](./supabase/migrations/) in filename order before
+deploying the updated frontend. New installations should use the complete
+[supabase/schema.sql](./supabase/schema.sql).
 
 The schema includes indexes for user/date, user/name, entry/day, and
 entry/user lookups. The app expects the schema and these RLS policies to be
@@ -236,20 +286,32 @@ installed in the Supabase project before it can read or write workout data.
   the displayed month.
 - **Monthly sets:** sum of entry `sets` in that month.
 - **Monthly reps:** sum of `sets × reps` for each entry.
-- **Weighted volume:** sum of `sets × reps × weight`; pounds are converted to
-  kilograms, bodyweight entries are excluded, and the result is displayed as
-  `kg·reps`.
-- **Weekly summary:** the seven dates ending today, showing workout status and
-  sets per date.
+- **Personal records:** highest logged positive weight for each strength
+  exercise, regardless of rep count. Pounds are converted to kilograms for
+  comparison/display; bodyweight and cardio entries are excluded. The summary
+  card shows the top record and opens the complete all-time list.
+- **Weekly summary:** independently loads the seven local dates ending today,
+  even when the week crosses a month boundary or a historical month is selected.
+  Cardio entries contribute zero sets.
+- **Monthly leaderboard:** uses only the selected calendar month and the
+  aggregate leaderboard RPC; only registered (non-anonymous) accounts appear.
+- **Monthly PR comparison:** selects the top five registered athletes by
+  workout days in the selected month, then displays each athlete's five highest
+  all-time exercise PRs. Comparison weights are converted to kilograms, and the
+  restricted RPC does not expose account IDs or raw workout entries.
 - **Exercise focus:** the eight exercise names with the most accumulated sets
   across the user's entries.
-- **Recent history:** up to ten entries ordered by `created_at`, not by
-  workout-day date.
+- **Recent history:** up to ten workout days ordered by date, showing the local
+  workout date and the day's workout type.
 
-The entry form currently defaults the load unit to kilograms. The database and
-monthly calculation also recognize `lb` and `bodyweight`; changing the unit
-choices or presentation requires updating the entry form and the related
-summary/history displays as well.
+The entry form records reps and weight separately for every strength set, with
+the weight unit shared by that exercise entry. Older rows with empty
+`set_details` continue to render by repeating their existing reps and weight
+values across the stored set count. The database recognizes `kg`, `lb`, and
+`bodyweight`. Cardio entries require
+positive `distance_km` and `speed_kmh`; legacy rows default to strength. Changes
+to entry types or units should update the form, API normalization, schema, and
+summary/history displays together.
 
 ## Where to make changes
 
@@ -278,7 +340,8 @@ until its policies are in place and the app supplies the correct `user_id`.
 ### Requirements
 
 - Node.js and npm (the deployment workflow currently uses Node.js 20).
-- A Supabase project with the SQL in `supabase/schema.sql` applied.
+- A new Supabase project with `supabase/schema.sql` applied, or an existing
+  project upgraded with the SQL files in `supabase/migrations/` in filename order.
 - Anonymous sign-ins enabled if guest access is needed.
 - The Email provider and Manual Linking enabled for email-linked guest
   accounts; configure the local and deployed URLs in Supabase's redirect
@@ -346,9 +409,9 @@ inputs, panels, and status variants; component-specific class names keep each
 dashboard section recognizable.
 
 The main content uses CSS Grid for summary cards and insights. At widths below
-900px, insights become a single column; below 768px, the calendar and entry
-form become narrower single/two-column layouts. There is no component library,
-CSS preprocessor, or external charting dependency.
+900px, insights become a single column. The calendar remains seven columns at
+mobile widths, and the day editor becomes a full-screen sheet. There is no
+component library, CSS preprocessor, or external charting dependency.
 
 When changing UI structure, keep component class names aligned with
 `src/index.css`; use the existing CSS variables and status classes where
