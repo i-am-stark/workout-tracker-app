@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 
 const formatWeight = (weightKg) => `${weightKg.toFixed(1)} kg`;
 
-export function PersonalRecordsModal({ records, error, onClose }) {
+export function PersonalRecordsModal({ records = [], error, onClose }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -22,6 +22,7 @@ export function PersonalRecordsModal({ records, error, onClose }) {
         className="pr-modal panel-section"
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-labelledby="personal-records-title"
         onClick={(event) => event.stopPropagation()}
       >

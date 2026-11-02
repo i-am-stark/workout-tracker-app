@@ -1,4 +1,4 @@
-export function Leaderboard({ rows, monthTitle, loading, error }) {
+export function Leaderboard({ rows = [], monthTitle, loading, error }) {
   return (
     <section className="panel-section leaderboard-section" aria-labelledby="leaderboard-title">
       <div className="section-header">

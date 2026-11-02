@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-export function MonthlyPrComparison({ rows, monthTitle, loading, error }) {
+export function MonthlyPrComparison({ rows = [], monthTitle, loading, error }) {
   const [showAllUsers, setShowAllUsers] = useState(false);
   const users = useMemo(() => {
     const userMap = new Map();
