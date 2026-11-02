@@ -35,7 +35,10 @@ export function WeeklySummary({ workoutDays, entries, loading }) {
           <div key={item.key} className="weekly-bar-wrap">
             <span className="day-label">{item.label}</span>
             <div className={`weekly-bar ${item.status}`}>
-              <span style={{ height: `${Math.max(item.volume * 8, item.status === 'workout' ? 20 : 8)}px` }} />
+              <span
+                style={{ height: `${Math.min(100, Math.max(item.volume * 8, item.status === 'workout' ? 20 : 8))}%` }}
+                title={`${item.volume} sets`}
+              />
             </div>
             <small>{item.volume}</small>
           </div>
