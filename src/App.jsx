@@ -1,8 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
-import { getWorkoutDaysForMonth, saveWorkoutDay, getWorkoutDay } from './api/workoutDays';
+import {
+  getWorkoutDaysForMonth,
+  getRecentWorkoutDays,
+  saveWorkoutDay,
+  getWorkoutDay
+} from './api/workoutDays';
 import { searchExercises, upsertExercise } from './api/exercises';
-import { getEntriesForDay, getEntriesForDays, getRecentEntries, getExerciseVolume, saveWorkoutEntry, deleteWorkoutEntry } from './api/workoutEntries';
+import { getEntriesForDay, getEntriesForDays, getExerciseVolume, saveWorkoutEntry, deleteWorkoutEntry } from './api/workoutEntries';
 import { CalendarGrid } from './components/CalendarGrid';
 import { DayDetailsModal } from './components/DayDetailsModal';
 import { SummaryCards } from './components/SummaryCards';
@@ -10,10 +15,26 @@ import { WeeklySummary } from './components/WeeklySummary';
 import { HistoryList } from './components/HistoryList';
 import { ExerciseChart } from './components/ExerciseChart';
 import { AccountPanel } from './components/AccountPanel';
-import { formatDateKey, getMonthDays, getMonthTitle } from './lib/dateUtils';
+import { Leaderboard } from './components/Leaderboard';
+import { formatDateKey, getMonthDays, getMonthTitle, getPastDays } from './lib/dateUtils';
+import { exerciseLibrary } from './data/exerciseLibrary';
+import { getMyProfile, saveMyProfile } from './api/profiles';
+import { getMonthlyLeaderboard } from './api/leaderboard';
+import { getMonthlyPrComparison } from './api/monthlyPrComparison';
+import { getEntrySetDetails } from './lib/workoutEntryUtils';
+import { getPersonalRecords } from './api/personalRecords';
+import { PersonalRecordsModal } from './components/PersonalRecordsModal';
+import { MonthlyPrComparison } from './components/MonthlyPrComparison';
 
 const monthStart = (date) => new Date(date.getFullYear(), date.getMonth(), 1);
-const monthEnd = (date) => new Date(date.getFullYear(), date.getMonth() + 1, 0);
+const monthPrefix = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+const getVisibleDays = (userId, date) => {
+  const cells = getMonthDays(date.getFullYear(), date.getMonth());
+  return getWorkoutDaysForMonth(userId, cells[0].key, cells[cells.length - 1].key);
+};
+const getMonthDayIds = (days, date) =>
+  days.filter((day) => day.date.startsWith(monthPrefix(date))).map((day) => day.id);
 const passwordSetupUserKey = 'workout-tracker-password-setup-user';
 
 export default function App() {
@@ -33,7 +54,26 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [modalDay, setModalDay] = useState(null);
   const [dayEntries, setDayEntries] = useState([]);
-  const [recentEntries, setRecentEntries] = useState([]);
+  const [weeklyDays, setWeeklyDays] = useState([]);
+  const [weeklyEntries, setWeeklyEntries] = useState([]);
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
+  const [dashboardRefreshToken, setDashboardRefreshToken] = useState(0);
+  const [profile, setProfile] = useState(null);
+  const [profileDraft, setProfileDraft] = useState('');
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileMessage, setProfileMessage] = useState('');
+  const [leaderboardRows, setLeaderboardRows] = useState([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState('');
+  const [monthlyPrRows, setMonthlyPrRows] = useState([]);
+  const [monthlyPrLoading, setMonthlyPrLoading] = useState(false);
+  const [monthlyPrError, setMonthlyPrError] = useState('');
+  const [personalRecords, setPersonalRecords] = useState([]);
+  const [personalRecordsLoading, setPersonalRecordsLoading] = useState(false);
+  const [personalRecordsError, setPersonalRecordsError] = useState('');
+  const [showPersonalRecords, setShowPersonalRecords] = useState(false);
+  const [recentWorkoutDays, setRecentWorkoutDays] = useState([]);
   const [exerciseVolume, setExerciseVolume] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialising, setIsInitialising] = useState(true);
@@ -46,11 +86,15 @@ export default function App() {
       setError('');
       setWorkoutMap({});
       setMonthEntries([]);
-      setRecentEntries([]);
+      setRecentWorkoutDays([]);
       setExerciseVolume([]);
       setSelectedDate(null);
       setModalDay(null);
       setDayEntries([]);
+      setProfile(null);
+      setProfileDraft('');
+      setPersonalRecords([]);
+      setShowPersonalRecords(false);
       setIsLoading(Boolean(nextUserId));
     }
     if (!user?.is_anonymous) {
@@ -150,17 +194,10 @@ export default function App() {
       try {
         setIsLoading(true);
 
-        const start = monthStart(monthDate);
-        const end = monthEnd(monthDate);
-
-        const days = await getWorkoutDaysForMonth(
-          userId,
-          formatDateKey(start),
-          formatDateKey(end)
-        );
+        const days = await getVisibleDays(userId, monthDate);
         const [entries, recent, volume] = await Promise.all([
-          getEntriesForDays(userId, days.map((day) => day.id)),
-          getRecentEntries(userId, 10),
+          getEntriesForDays(userId, getMonthDayIds(days, monthDate)),
+          getRecentWorkoutDays(userId, 10),
           getExerciseVolume(userId)
         ]);
 
@@ -172,7 +209,7 @@ export default function App() {
         if (active) {
           setWorkoutMap(map);
           setMonthEntries(entries);
-          setRecentEntries(recent || []);
+          setRecentWorkoutDays(recent || []);
           setExerciseVolume(volume || []);
         }
       } catch (err) {
@@ -188,7 +225,152 @@ export default function App() {
     };
   }, [userId, monthDate]);
 
-  async function handleLinkEmail(email) {
+  useEffect(() => {
+    if (!userId) {
+      setWeeklyDays([]);
+      setWeeklyEntries([]);
+      return;
+    }
+
+    let active = true;
+    async function loadWeeklyData() {
+      const daysInWeek = getPastDays(7);
+      setWeeklyLoading(true);
+      try {
+        const days = await getWorkoutDaysForMonth(
+          userId,
+          daysInWeek[0].date,
+          daysInWeek[daysInWeek.length - 1].date
+        );
+        const entries = await getEntriesForDays(userId, days.map((day) => day.id));
+        if (active) {
+          setWeeklyDays(days);
+          setWeeklyEntries(entries);
+        }
+      } catch (err) {
+        if (active) setError(err.message || 'Could not load weekly workout data.');
+      } finally {
+        if (active) setWeeklyLoading(false);
+      }
+    }
+
+    loadWeeklyData();
+    return () => {
+      active = false;
+    };
+  }, [userId, dashboardRefreshToken]);
+
+  useEffect(() => {
+    if (!userId) {
+      setProfile(null);
+      return;
+    }
+
+    let active = true;
+    async function loadProfile() {
+      setProfileError('');
+      try {
+        let nextProfile = await getMyProfile(userId);
+        if (!nextProfile) nextProfile = await saveMyProfile(userId, 'Athlete');
+        if (active) {
+          setProfile(nextProfile);
+          setProfileDraft(nextProfile.display_name);
+        }
+      } catch (err) {
+        if (active) setProfileError(err.message || 'Could not load your profile.');
+      }
+    }
+
+    loadProfile();
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setLeaderboardRows([]);
+      setMonthlyPrRows([]);
+      return;
+    }
+
+    let active = true;
+    async function loadLeaderboard() {
+      setLeaderboardLoading(true);
+      setLeaderboardError('');
+      try {
+        const rows = await getMonthlyLeaderboard(monthDate);
+        if (active) setLeaderboardRows(rows);
+      } catch (err) {
+        if (active) setLeaderboardError(err.message || 'Could not load the monthly leaderboard.');
+      } finally {
+        if (active) setLeaderboardLoading(false);
+      }
+    }
+
+    loadLeaderboard();
+    return () => {
+      active = false;
+    };
+  }, [userId, monthDate, dashboardRefreshToken, authUser?.is_anonymous]);
+
+  useEffect(() => {
+    if (!userId) {
+      setMonthlyPrRows([]);
+      return;
+    }
+
+    let active = true;
+    async function loadMonthlyPrComparison() {
+      setMonthlyPrLoading(true);
+      setMonthlyPrError('');
+      try {
+        const rows = await getMonthlyPrComparison(monthDate);
+        if (active) setMonthlyPrRows(rows);
+      } catch (err) {
+        if (active) {
+          setMonthlyPrError(err.message || 'Could not load monthly PR comparisons.');
+        }
+      } finally {
+        if (active) setMonthlyPrLoading(false);
+      }
+    }
+
+    loadMonthlyPrComparison();
+    return () => {
+      active = false;
+    };
+  }, [userId, monthDate, dashboardRefreshToken, authUser?.is_anonymous]);
+
+  useEffect(() => {
+    if (!userId) {
+      setPersonalRecords([]);
+      return;
+    }
+
+    let active = true;
+    async function loadPersonalRecords() {
+      setPersonalRecordsLoading(true);
+      setPersonalRecordsError('');
+      try {
+        const records = await getPersonalRecords(userId);
+        if (active) setPersonalRecords(records);
+      } catch (err) {
+        if (active) {
+          setPersonalRecordsError(err.message || 'Could not load personal records.');
+        }
+      } finally {
+        if (active) setPersonalRecordsLoading(false);
+      }
+    }
+
+    loadPersonalRecords();
+    return () => {
+      active = false;
+    };
+  }, [userId, dashboardRefreshToken]);
+
+  async function handleLinkEmail(email, displayName) {
     setAuthBusy(true);
     setAuthError('');
     setAuthMessage('');
@@ -196,13 +378,20 @@ export default function App() {
       if (!authUser?.is_anonymous) {
         throw new Error('Email linking is only available from the anonymous account that owns these records.');
       }
+      const cleanDisplayName = displayName.trim();
+      if (!cleanDisplayName || cleanDisplayName.length > 40) {
+        throw new Error('Display name must be between 1 and 40 characters.');
+      }
 
       const { error: linkError } = await supabase.auth.updateUser(
-        { email },
+        { email, data: { display_name: cleanDisplayName } },
         { emailRedirectTo: `${window.location.origin}${window.location.pathname}` }
       );
       if (linkError) throw linkError;
 
+      const savedProfile = await saveMyProfile(authUser.id, cleanDisplayName);
+      setProfile(savedProfile);
+      setProfileDraft(savedProfile.display_name);
       localStorage.setItem(passwordSetupUserKey, authUser.id);
       setAuthMessage(
         `A verification email was sent to ${email}. Open the link in this browser; you’ll then be prompted to set a password.`
@@ -329,6 +518,30 @@ export default function App() {
     }
   }
 
+  async function handleSaveProfile(event) {
+    event.preventDefault();
+    if (!userId) return;
+
+    setProfileBusy(true);
+    setProfileError('');
+    setProfileMessage('');
+    try {
+      const savedProfile = await saveMyProfile(userId, profileDraft);
+      setProfile(savedProfile);
+      setProfileDraft(savedProfile.display_name);
+      setProfileMessage('Display name saved.');
+      setDashboardRefreshToken((token) => token + 1);
+    } catch (err) {
+      setProfileError(err.message || 'Could not save your display name.');
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  const closePersonalRecords = useCallback(() => {
+    setShowPersonalRecords(false);
+  }, []);
+
   function handleRetryAuth() {
     setAuthError('');
     setIsInitialising(true);
@@ -336,28 +549,25 @@ export default function App() {
   }
 
   const summary = useMemo(() => {
-    const monthPrefix = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`;
-    const entries = Object.values(workoutMap).filter((day) => day.date.startsWith(monthPrefix));
+    const prefix = monthPrefix(monthDate);
+    const entries = Object.values(workoutMap).filter((day) => day.date.startsWith(prefix));
     const workoutDaysCount = entries.filter((day) => day.status === 'workout').length;
 
     const totalSets = monthEntries.reduce((sum, item) => sum + Number(item.sets || 0), 0);
-    const totalReps = monthEntries.reduce(
-      (sum, item) => sum + Number(item.sets || 0) * Number(item.reps || 0),
-      0
-    );
-    const trainingVolume = monthEntries.reduce((sum, item) => {
-      if (item.weight_unit === 'bodyweight') return sum;
-
-      const weight = Number(item.weight || 0);
-      const weightInKg = item.weight_unit === 'lb' ? weight * 0.45359237 : weight;
-      return sum + Number(item.sets || 0) * Number(item.reps || 0) * weightInKg;
+    const totalReps = monthEntries.reduce((sum, item) => {
+      if (item.entry_type === 'cardio') return sum;
+      return (
+        sum +
+        getEntrySetDetails(item).reduce(
+          (setTotal, set) => setTotal + Number(set.reps || 0),
+          0
+        )
+      );
     }, 0);
-
     return {
       workoutDaysCount,
       totalSets,
-      totalReps,
-      trainingVolume
+      totalReps
     };
   }, [workoutMap, monthEntries, monthDate]);
 
@@ -369,7 +579,7 @@ export default function App() {
       const entries = existingDay ? await getEntriesForDay(userId, existingDay.id) : [];
 
       setSelectedDate(dateKey);
-      setModalDay(existingDay || { date: dateKey, status: 'empty', notes: '' });
+      setModalDay(existingDay || { date: dateKey, status: 'empty', notes: '', workout_type: '' });
       setDayEntries(entries);
     } catch (err) {
       setError(err.message || 'Could not open this day.');
@@ -380,18 +590,19 @@ export default function App() {
     const updated = await getWorkoutDay(userId, dateKey);
     const entries = updated ? await getEntriesForDay(userId, updated.id) : [];
 
-    setModalDay(updated || { date: dateKey, status: 'empty', notes: '' });
+    setModalDay(updated || { date: dateKey, status: 'empty', notes: '', workout_type: '' });
     setDayEntries(entries);
   }
 
-  async function handleStatusChange(nextStatus, notesValue) {
+  async function handleStatusChange(nextStatus, notesValue, nextWorkoutType) {
     if (!selectedDate || !userId) return;
 
     try {
       const savedDay = await saveWorkoutDay(userId, {
         date: selectedDate,
         status: nextStatus,
-        notes: notesValue ?? modalDay?.notes ?? ''
+        notes: notesValue ?? modalDay?.notes ?? '',
+        workout_type: nextWorkoutType ?? modalDay?.workout_type ?? ''
       });
 
       setModalDay(savedDay);
@@ -401,12 +612,13 @@ export default function App() {
       }));
 
       await refreshDay(selectedDate);
+      setDashboardRefreshToken((token) => token + 1);
     } catch (err) {
       setError(err.message || 'Could not save workout day status.');
     }
   }
 
-  async function handleSaveEntry(entryPayload) {
+  async function handleSaveEntry(entryPayload, nextWorkoutType) {
     if (!selectedDate || !userId) return false;
 
     const exerciseName = (entryPayload.exercise_name || '').trim();
@@ -420,7 +632,8 @@ export default function App() {
       const day = await saveWorkoutDay(userId, {
         date: selectedDate,
         status: 'workout',
-        notes: modalDay?.notes || ''
+        notes: modalDay?.notes || '',
+        workout_type: nextWorkoutType ?? modalDay?.workout_type ?? ''
       });
 
       await saveWorkoutEntry(userId, {
@@ -438,14 +651,7 @@ export default function App() {
       setModalDay(refreshedDay || day);
       setDayEntries(refreshedEntries);
 
-      const start = monthStart(monthDate);
-      const end = monthEnd(monthDate);
-
-      const days = await getWorkoutDaysForMonth(
-        userId,
-        formatDateKey(start),
-        formatDateKey(end)
-      );
+      const days = await getVisibleDays(userId, monthDate);
 
       const nextMap = {};
       days.forEach((item) => {
@@ -455,14 +661,15 @@ export default function App() {
       setWorkoutMap(nextMap);
 
       const [nextRecent, nextVolume, nextMonthEntries] = await Promise.all([
-        getRecentEntries(userId, 10),
+        getRecentWorkoutDays(userId, 10),
         getExerciseVolume(userId),
-        getEntriesForDays(userId, days.map((item) => item.id))
+        getEntriesForDays(userId, getMonthDayIds(days, monthDate))
       ]);
 
-      setRecentEntries(nextRecent);
+      setRecentWorkoutDays(nextRecent);
       setExerciseVolume(nextVolume);
       setMonthEntries(nextMonthEntries);
+      setDashboardRefreshToken((token) => token + 1);
       return true;
     } catch (err) {
       setError(err.message || 'Could not save workout entry.');
@@ -477,14 +684,7 @@ export default function App() {
       await deleteWorkoutEntry(entryId);
       await refreshDay(selectedDate);
 
-      const start = monthStart(monthDate);
-      const end = monthEnd(monthDate);
-
-      const days = await getWorkoutDaysForMonth(
-        userId,
-        formatDateKey(start),
-        formatDateKey(end)
-      );
+      const days = await getVisibleDays(userId, monthDate);
 
       const map = {};
       days.forEach((item) => {
@@ -493,30 +693,64 @@ export default function App() {
 
       setWorkoutMap(map);
 
-      const nextRecent = await getRecentEntries(userId, 10);
+      const nextRecent = await getRecentWorkoutDays(userId, 10);
       const nextVolume = await getExerciseVolume(userId);
 
-      setRecentEntries(nextRecent);
+      setRecentWorkoutDays(nextRecent);
       setExerciseVolume(nextVolume);
-      const updatedEntries = await getEntriesForDays(userId, days.map((item) => item.id));
+      const updatedEntries = await getEntriesForDays(userId, getMonthDayIds(days, monthDate));
       setMonthEntries(updatedEntries);
+      setDashboardRefreshToken((token) => token + 1);
     } catch (err) {
       setError(err.message || 'Could not delete workout entry.');
     }
   }
 
-  async function handleSearchExercises(query) {
+  const handleSearchExercises = useCallback(async (query) => {
     if (!userId) return [];
     if (!query.trim()) return [];
 
-    const results = await searchExercises(userId, query);
-    return results || [];
-  }
+    try {
+      const savedExercises = await searchExercises(userId, query);
+      const normalizedQuery = query.trim().toLocaleLowerCase();
+      const matches = exerciseLibrary.filter((exercise) =>
+        exercise.name.toLocaleLowerCase().includes(normalizedQuery)
+      );
+      const merged = new Map(
+        matches.map((exercise) => [exercise.name.toLocaleLowerCase(), exercise])
+      );
+      (savedExercises || []).forEach((exercise) => {
+        merged.set(exercise.name.toLocaleLowerCase(), {
+          ...exercise,
+          category: exercise.category || 'Saved'
+        });
+      });
+      return Array.from(merged.values()).slice(0, 10);
+    } catch (err) {
+      setError(err.message || 'Could not search saved exercises.');
+      return [];
+    }
+  }, [userId]);
 
   const calendarCells = useMemo(
     () => getMonthDays(monthDate.getFullYear(), monthDate.getMonth()),
     [monthDate]
   );
+
+  function handleCalendarDate(dateKey) {
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    if (date.getMonth() !== monthDate.getMonth() || date.getFullYear() !== monthDate.getFullYear()) {
+      setMonthDate(monthStart(date));
+    }
+    openDay(dateKey);
+  }
+
+  function handleLogToday() {
+    const today = new Date();
+    setMonthDate(monthStart(today));
+    openDay(formatDateKey(today));
+  }
 
   if (!isSupabaseConfigured) {
     return (
@@ -543,29 +777,28 @@ export default function App() {
 
         {userId && (
           <div className="topbar-actions">
-            <div className="month-controls">
-              <button
-                type="button"
-                className="nav-button"
-                onClick={() =>
-                  setMonthDate(new Date(monthDate.getFullYear(), monthDate.getMonth() - 1, 1))
-                }
-              >
-                Prev
-              </button>
-
-              <div className="month-label">{getMonthTitle(monthDate)}</div>
-
-              <button
-                type="button"
-                className="nav-button"
-                onClick={() =>
-                  setMonthDate(new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1))
-                }
-              >
-                Next
-              </button>
-            </div>
+            <details className="profile-menu">
+              <summary>{profile?.display_name || 'Profile'}</summary>
+              <form className="profile-form" onSubmit={handleSaveProfile}>
+                <label>
+                  Display name
+                  <input
+                    type="text"
+                    className="text-input"
+                    minLength={1}
+                    maxLength={40}
+                    required
+                    value={profileDraft}
+                    onChange={(event) => setProfileDraft(event.target.value)}
+                  />
+                </label>
+                {profileMessage && <p className="account-message" role="status">{profileMessage}</p>}
+                {profileError && <p className="account-error" role="alert">{profileError}</p>}
+                <button type="submit" className="button primary-button" disabled={profileBusy}>
+                  {profileBusy ? 'Saving...' : 'Save name'}
+                </button>
+              </form>
+            </details>
             {authUser?.is_anonymous ? (
               <button
                 type="button"
@@ -621,12 +854,11 @@ export default function App() {
 
       {userId && (
         <>
-          <SummaryCards summary={summary} />
-
-          <div className="insights-grid">
-            <WeeklySummary workoutMap={workoutMap} monthEntries={monthEntries} />
-            <ExerciseChart data={exerciseVolume} />
-          </div>
+          <section className="today-action-section">
+            <button type="button" className="button primary-button today-action" onClick={handleLogToday}>
+              Log today's workout
+            </button>
+          </section>
 
           {isLoading ? (
             <div className="loading-card">Loading workout calendar...</div>
@@ -634,12 +866,53 @@ export default function App() {
             <CalendarGrid
               cells={calendarCells}
               workoutMap={workoutMap}
-              onDateClick={openDay}
+              onDateClick={handleCalendarDate}
+              monthTitle={getMonthTitle(monthDate)}
+              selectedDate={selectedDate}
+              onPreviousMonth={() =>
+                setMonthDate(new Date(monthDate.getFullYear(), monthDate.getMonth() - 1, 1))
+              }
+              onNextMonth={() =>
+                setMonthDate(new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 1))
+              }
+              onToday={() => setMonthDate(monthStart(new Date()))}
             />
           )}
 
+          <WeeklySummary
+            workoutDays={weeklyDays}
+            entries={weeklyEntries}
+            loading={weeklyLoading}
+          />
+
+          <Leaderboard
+            rows={leaderboardRows}
+            monthTitle={getMonthTitle(monthDate)}
+            loading={leaderboardLoading}
+            error={leaderboardError}
+          />
+
+          <MonthlyPrComparison
+            rows={monthlyPrRows}
+            monthTitle={getMonthTitle(monthDate)}
+            loading={monthlyPrLoading}
+            error={monthlyPrError}
+          />
+
+          <SummaryCards
+            summary={summary}
+            personalRecords={personalRecords}
+            personalRecordsLoading={personalRecordsLoading}
+            personalRecordsError={personalRecordsError}
+            onOpenPersonalRecords={() => setShowPersonalRecords(true)}
+          />
+
+          <div className="insights-grid">
+            <ExerciseChart data={exerciseVolume} />
+          </div>
+
           <div className="bottom-grid">
-            <HistoryList entries={recentEntries} />
+            <HistoryList workoutDays={recentWorkoutDays} />
           </div>
 
           {selectedDate && (
@@ -653,9 +926,19 @@ export default function App() {
                 setDayEntries([]);
               }}
               onStatusChange={handleStatusChange}
+              onWorkoutTypeChange={(value) =>
+                handleStatusChange(modalDay?.status || 'empty', modalDay?.notes || '', value)
+              }
               onSaveEntry={handleSaveEntry}
               onDeleteEntry={handleDeleteEntry}
               onSearchExercises={handleSearchExercises}
+            />
+          )}
+          {showPersonalRecords && (
+            <PersonalRecordsModal
+              records={personalRecords}
+              error={personalRecordsError}
+              onClose={closePersonalRecords}
             />
           )}
         </>

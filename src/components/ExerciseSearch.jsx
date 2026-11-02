@@ -8,27 +8,37 @@ export function ExerciseSearch({
   onCreateNew
 }) {
   const [query, setQuery] = useState(value || '');
+  const [selectedName, setSelectedName] = useState('');
 
   useEffect(() => {
     setQuery(value || '');
+    if (value !== selectedName) setSelectedName('');
   }, [value]);
 
   function handleInput(event) {
     const nextValue = event.target.value;
     setQuery(nextValue);
+    setSelectedName('');
     onChange(nextValue);
   }
 
+  const hasSelectedSuggestion =
+    selectedName && query.trim().toLocaleLowerCase() === selectedName.toLocaleLowerCase();
+
   return (
     <div className="exercise-search-wrap">
-      <input
-        value={query}
-        onChange={handleInput}
-        className="text-input"
-        placeholder="Search exercises"
-      />
+      <label className="exercise-search-label">
+        Search exercise library
+        <input
+          value={query}
+          onChange={handleInput}
+          className="text-input"
+          placeholder="Search exercises"
+          aria-label="Search exercises"
+        />
+      </label>
 
-      {suggestions && suggestions.length > 0 && (
+      {!hasSelectedSuggestion && suggestions && suggestions.length > 0 && (
         <div className="suggestion-list">
           {suggestions.map((exercise) => (
             <button
@@ -37,22 +47,27 @@ export function ExerciseSearch({
               className="suggestion-item"
               onClick={() => {
                 setQuery(exercise.name);
+                setSelectedName(exercise.name);
                 onSelectSuggestion(exercise);
               }}
             >
-              {exercise.name}
+              <span>{exercise.name}</span>
+              <small>{exercise.category || 'Saved'}</small>
             </button>
           ))}
         </div>
       )}
 
-      {query.trim() && (
+      {query.trim() && !hasSelectedSuggestion && (
         <button
           type="button"
           className="text-button"
-          onClick={() => onCreateNew(query.trim())}
+          onClick={() => {
+            setSelectedName(query.trim());
+            onCreateNew(query.trim());
+          }}
         >
-          Add new exercise: {query.trim()}
+          Add custom exercise: {query.trim()}
         </button>
       )}
     </div>
