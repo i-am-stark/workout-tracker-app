@@ -48,7 +48,7 @@ export async function getExerciseVolume(userId) {
 
   const map = new Map();
 
-  (data || []).forEach((entry) => {
+  (data || []).filter((entry) => entry.entry_type !== 'cardio').forEach((entry) => {
     const key = entry.exercise_name;
     const current = map.get(key) || {
       name: key,
@@ -72,14 +72,55 @@ export async function getExerciseVolume(userId) {
 
 export async function saveWorkoutEntry(userId, payload) {
   const { id, ...rest } = payload;
+  const entryType = rest.entry_type || 'strength';
+  const distance = rest.distance_km == null ? null : Number(rest.distance_km);
+  const speed = rest.speed_kmh == null ? null : Number(rest.speed_kmh);
+  const setDetails = Array.isArray(rest.set_details)
+    ? rest.set_details.map((set) => ({
+        reps: Number(set.reps || 0),
+        weight: Number(set.weight || 0)
+      }))
+    : [];
+
+  if (entryType !== 'strength' && entryType !== 'cardio') {
+    throw new Error('Entry type must be strength or cardio.');
+  }
+  if (
+    entryType === 'cardio' &&
+    (!Number.isFinite(distance) ||
+      distance <= 0 ||
+      !Number.isFinite(speed) ||
+      speed <= 0)
+  ) {
+    throw new Error('Cardio entries require a positive distance and speed.');
+  }
+  if (
+    entryType === 'strength' &&
+    (setDetails.length === 0 ||
+      setDetails.some(
+        (set) =>
+          !Number.isInteger(set.reps) ||
+          set.reps < 0 ||
+          !Number.isFinite(set.weight) ||
+          set.weight < 0
+      ))
+  ) {
+    throw new Error('Strength entries require at least one set with valid reps and weight.');
+  }
 
   const insertPayload = {
     ...rest,
+    set_details: entryType === 'strength' ? setDetails : [],
+    entry_type: entryType,
+    distance_km: entryType === 'cardio' ? distance : null,
+    speed_kmh: entryType === 'cardio' ? speed : null,
     user_id: userId,
     exercise_name: rest.exercise_name || '',
-    sets: Number(rest.sets || 0),
-    reps: Number(rest.reps || 0),
-    weight: Number(rest.weight || 0),
+    sets: entryType === 'strength' ? setDetails.length : 0,
+    reps: setDetails[0]?.reps ?? 0,
+    weight: setDetails.length
+      ? Math.max(...setDetails.map((set) => set.weight))
+      : Number(rest.weight || 0),
     notes: rest.notes || '',
     sort_order: rest.sort_order ?? 0,
     weight_unit: rest.weight_unit || 'kg'

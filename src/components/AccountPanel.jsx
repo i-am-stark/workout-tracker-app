@@ -17,6 +17,7 @@ export function AccountPanel({
   onRequestPasswordReset
 }) {
   const [email, setEmail] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
@@ -27,8 +28,11 @@ export function AccountPanel({
 
   async function submitLinkEmail(event) {
     event.preventDefault();
-    const linked = await onLinkEmail(email.trim());
-    if (linked) setEmail('');
+    const linked = await onLinkEmail(email.trim(), displayName.trim());
+    if (linked) {
+      setEmail('');
+      setDisplayName('');
+    }
   }
 
   async function submitPassword(event) {
@@ -118,6 +122,19 @@ export function AccountPanel({
           browsers and devices.
         </p>
         <form className="account-form" onSubmit={submitLinkEmail}>
+          <label>
+            Display name
+            <input
+              type="text"
+              className="text-input"
+              autoComplete="nickname"
+              minLength={1}
+              maxLength={40}
+              required
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+            />
+          </label>
           <label>
             Email
             <input
