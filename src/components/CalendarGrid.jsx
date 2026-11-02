@@ -45,6 +45,8 @@ export function CalendarGrid({
               type="button"
               className={`day-cell ${status} ${isCurrentMonth ? 'current-month' : 'muted-month'} ${isToday ? 'today' : ''} ${cell.key === selectedDate ? 'selected' : ''}`}
               aria-label={`${cell.key}, ${status}`}
+              aria-pressed={cell.key === selectedDate}
+              title={`${cell.key} · ${status === 'empty' ? 'No log' : status}`}
               onClick={() => onDateClick(cell.key)}
             >
               <span className="day-number">{cell.day}</span>

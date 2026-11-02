@@ -1,5 +1,5 @@
-export function ExerciseChart({ data }) {
-  const maxValue = Math.max(...data.map((item) => item.sets), 1);
+export function ExerciseChart({ data = [] }) {
+  const maxValue = Math.max(...data.map((item) => Number(item.sets) || 0), 1);
 
   return (
     <div className="panel-section">
@@ -7,8 +7,11 @@ export function ExerciseChart({ data }) {
         <h3>Exercise focus</h3>
       </div>
 
-      <div className="exercise-chart">
-        {data.map((item) => (
+      {data.length === 0 ? (
+        <p className="empty-state">Log a few workouts to see your most-trained exercises.</p>
+      ) : (
+        <div className="exercise-chart">
+          {data.map((item) => (
           <div key={item.name} className="chart-row">
             <span className="chart-label">{item.name}</span>
             <div className="chart-bar-track">
@@ -19,8 +22,9 @@ export function ExerciseChart({ data }) {
             </div>
             <span className="chart-value">{item.sets}</span>
           </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

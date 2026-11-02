@@ -33,18 +33,22 @@ export function ExerciseSearch({
           value={query}
           onChange={handleInput}
           className="text-input"
-          placeholder="Search exercises"
+          placeholder="e.g. Bench press"
           aria-label="Search exercises"
+          autoComplete="off"
+          spellCheck="false"
         />
       </label>
 
       {!hasSelectedSuggestion && suggestions && suggestions.length > 0 && (
-        <div className="suggestion-list">
+        <div className="suggestion-list" role="listbox" aria-label="Exercise suggestions">
           {suggestions.map((exercise) => (
             <button
               key={exercise.id || exercise.name}
               type="button"
               className="suggestion-item"
+              role="option"
+              aria-selected={false}
               onClick={() => {
                 setQuery(exercise.name);
                 setSelectedName(exercise.name);

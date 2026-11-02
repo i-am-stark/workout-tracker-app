@@ -7,9 +7,9 @@ export function SummaryCards({
 }) {
   const topRecord = personalRecords[0];
   const cards = [
-    { label: 'Workout days this month', value: summary.workoutDaysCount },
-    { label: 'Sets this month', value: summary.totalSets },
-    { label: 'Reps this month', value: summary.totalReps },
+    { label: 'Workout days this month', value: summary.workoutDaysCount ?? 0 },
+    { label: 'Sets this month', value: summary.totalSets ?? 0 },
+    { label: 'Reps this month', value: summary.totalReps ?? 0 },
   ];
 
   return (

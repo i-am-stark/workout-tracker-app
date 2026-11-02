@@ -1,4 +1,4 @@
-export function HistoryList({ workoutDays }) {
+export function HistoryList({ workoutDays = [] }) {
   if (!workoutDays.length) {
     return (
       <div className="panel-section">
